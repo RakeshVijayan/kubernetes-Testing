@@ -1,0 +1,263 @@
+
+Must Read 
+https://www.linuxtechi.com/install-kubernetes-on-ubuntu-22-04/  
+https://gist.github.com/rsmitty/a7577e1254d3bd9f5394f4bbf7885811  ( This Calico Required if We following the below tutorial also its available in Document directory  ) 
+
+
+sudo apt-get install -y kubelet=1.23.15-00 kubeadm=1.23.15-00 kubectl=1.23.15-00
+nano /etc/netplan/0000
+
+network:
+  ethernets:
+    enp0s3:
+#      dhcp4: true
+      addresses:
+        - 192.168.0.120/24
+      routes:
+        - to: default
+          via: 192.168.0.1
+      nameservers:
+          addresses: [ 8.8.8.8, 4.4.4.4 ]
+  version: 2
+
+
+network:
+  ethernets:
+    enp0s8:
+#      dhcp4: true
+      addresses:
+        -  192.168.56.2/24
+#      routes:
+#        - to: default
+#          via: 192.168.56.1
+  version: 2
+
+kube-master
+
+========================
+
+=========================
+1.Update the package repository (All hosts)
+sudo apt-get update
+
+2. Install Docker (All hosts)
+sudo apt-get install docker.io -y
+
+3. Access Repos via HTTPS (All hosts)
+sudo apt-get install apt-transport-https curl -y
+
+4. Add K8S key and Repo (All hosts)
+curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
+cat <<EOF | sudo tee /etc/apt/sources.list.d/kubernetes.list
+deb https://apt.kubernetes.io/ kubernetes-xenial main
+EOF
+
+5. Update the package repository and Install K8S components (All hosts):
+sudo apt-get update
+sudo apt-get install -y kubelet=1.18.1-00  kubeadm=1.18.1-00 kubectl=1.18.1-00
+
+
+sudo apt-get install -y kubelet=1.23.15-00 
+sudo apt-get install -y kubeadm=1.23.15-00 
+sudo apt-get install -y kubectl=1.23.15-00
+sudo apt-mark hold kubelet kubeadm kubectl
+
+6. Add the hosts entry (All hosts)
+edit the file "/etc/hosts"
+
+7. Disable SWAP (All hosts)
+sudo swapoff -a
+edit /etc/fstab to remove the swap entry
+
+8. Initiate the Cluster(Only on Master node)
+sudo kubeadm init --control-plane-endpoint kube-master:6443 --pod-network-cidr 10.10.0.0/16
+
+9. Set the kubectl context auth to connect to the cluster(Only on Master node)
+mkdir -p $HOME/.kube
+sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+sudo chown $(id -u):$(id -g) $HOME/.kube/config
+
+10. Pod Network Addon(Calico) (Only on Master node)
+Ref: https://docs.projectcalico.org/gettin...
+curl https://docs.projectcalico.org/manife... -O
+vi calico.yaml
+
+11. Generate Token to add worker Node(Only on Master node)
+#Create a new Token
+sudo kubeadm token create
+#List Tokens created
+sudo kubeadm token list
+#Find Certificate Hash on Master
+openssl x509 -pubkey -in /etc/kubernetes/pki/ca.crt | 
+   openssl rsa -pubin -outform der 2(GREATER THAN SYMBOL)/dev/null | 
+   openssl dgst -sha256 -hex | sed 's/^.* //'
+
+12. Join Nodes (Only on Worker nodes)
+sudo kubeadm join --token TOKEN_ID CONTROL_PLANE_HOSTNAME:CONTROL_PLANE_PORT --discovery-token-ca-cert-hash sha256:HASH
+(Formed using outputs from step 10, treat CAPS as variables to be replaced)
+
+13. Want to run workloads on Master?(Only on Master Node)
+kubectl taint nodes --all node-role.kubernetes.io/master-
+
+14. Sample Deployment file:
+=========================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deployment
+  labels:
+    app: nginx
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx
+        ports:
+        - containerPort: 80
+=========================
+
+15. Apply the deployment:
+kubectl apply -f FILE_NAME
+
+=======================================
+
+Commands Used in KuberNeties
+
+
+1) kubectl version ( to check the version ) 
+
+2) rakesh@kube-master:~$ kubectl cluster-info 
+Kubernetes master is running at https://kube-master:6443
+KubeDNS is running at https://kube-master:6443/api/v1/namespaces/kube-system/services/kube-dns:dns/proxy
+
+To further debug and diagnose cluster problems, use 'kubectl cluster-info dump'.
+
+3) rakesh@kube-master:~$ kubectl get nodes
+NAME           STATUS   ROLES    AGE   VERSION
+kube-master    Ready    master   20h   v1.18.1
+kube-worker1   Ready    <none>   20h   v1.18.1
+
+4) rakesh@kube-master:~$ kubectl create deployment kubernetes-bootcamp --image=gcr.io/google-samples/kubernetes-bootcamp:v1 ( Create Deployment ) 
+deployment.apps/kubernetes-bootcamp created
+
+	4.1) kubectl create deployment command is used to deploy the app 
+
+5) rakesh@kube-master:~$ kubectl get deployments ( View the deployments ) 
+NAME                  READY   UP-TO-DATE   AVAILABLE   AGE
+kubernetes-bootcamp   0/1     1            0           4s
+nginx-deployment      1/1     1            1           20h
+
+6) rakesh@kube-master:~$ kubectl get po -o wide ( View the status of pods and its associated details ) 
+NAME                                   READY   STATUS              RESTARTS   AGE   IP           NODE           NOMINATED NODE   READINESS GATES
+kubernetes-bootcamp-6f6656d949-lz69t   0/1     ContainerCreating   0          57s   <none>       kube-worker1   <none>           <none>
+nginx-deployment-d46f5678b-66bcn       1/1     Running             0          20h   10.0.194.1   kube-worker1   <none>           <none>
+rakesh@kube-master:~$ kubectl get po -o wide
+NAME                                   READY   STATUS    RESTARTS   AGE     IP           NODE           NOMINATED NODE   READINESS GATES
+kubernetes-bootcamp-6f6656d949-lz69t   1/1     Running   0          2m36s   10.0.194.3   kube-worker1   <none>           <none>
+nginx-deployment-d46f5678b-66bcn       1/1     Running   0          20h     10.0.194.1   kube-worker1   <none>           <none>
+
+7) 
+
+
+
+
+======================================
+
+
+
+
+Error I am facing while installing the kuberneties ( Issue Solve below error I got because I choosed hostname as qmaster 
+I changed it to kube-master and run the process again ) No error comes for me.  will check later 
+
+[wait-control-plane] Waiting for the kubelet to boot up the control plane as static Pods from directory "/etc/kubernetes/manifests". This can take up to 4m0s
+[kubelet-check] Initial timeout of 40s passed.
+
+        Unfortunately, an error has occurred:
+                timed out waiting for the condition
+
+        This error is likely caused by:
+                - The kubelet is not running
+                - The kubelet is unhealthy due to a misconfiguration of the node in some way (required cgroups disabled)
+
+        If you are on a systemd-powered system, you can try to troubleshoot the error with the following commands:
+                - 'systemctl status kubelet'
+                - 'journalctl -xeu kubelet'
+
+        Additionally, a control plane component may have crashed or exited when started by the container runtime.
+        To troubleshoot, list all containers using your preferred container runtimes CLI.
+
+        Here is one example how you may list all Kubernetes containers running in docker:
+                - 'docker ps -a | grep kube | grep -v pause'
+                Once you have found the failing container, you can inspect its logs with:
+                - 'docker logs CONTAINERID'
+
+error execution phase wait-control-plane: couldn't initialize a Kubernetes cluster
+To see the stack trace of this error execute with --v=5 or higher
+
+
+=============================================================================
+
+Your Kubernetes control-plane has initialized successfully!
+
+To start using your cluster, you need to run the following as a regular user:
+
+  mkdir -p $HOME/.kube
+  sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+  sudo chown $(id -u):$(id -g) $HOME/.kube/config
+
+You should now deploy a pod network to the cluster.
+Run "kubectl apply -f [podnetwork].yaml" with one of the options listed at:
+  https://kubernetes.io/docs/concepts/cluster-administration/addons/
+
+You can now join any number of control-plane nodes by copying certificate authorities
+and service account keys on each node and then running the following as root:
+
+  kubeadm join kube-master:6443 --token dxc9f5.lzked2ce4ss880jt \
+    --discovery-token-ca-cert-hash sha256:f58c9227e95bd0f0b43c10a57e6831ad1adfb067308ee89db159289487e05927 \
+    --control-plane
+
+Then you can join any number of worker nodes by running the following on each as root:
+
+kubeadm join kube-master:6443 --token dxc9f5.lzked2ce4ss880jt --discovery-token-ca-cert-hash sha256:f58c9227e95bd0f0b43c10a57e6831ad1adfb067308ee89db159289487e05927
+
+
+======================================================================
+
+Error on Calico installation ( Because of Version compatibility ) 
+
+
+daemonset.apps/calico-node configured
+deployment.apps/calico-kube-controllers unchanged
+error: unable to recognize "calico.yaml": no matches for kind "PodDisruptionBudget" in version "policy/v1"
+rakesh@kube-master:~$ ^C
+
+
+======================================================================
+
+Here the answer to how to install the desired docker version:
+
+Update the apt package index
+
+sudo apt-get update
+To install a specific version of Docker Engine - Community, list the available versions in the repo, then select and install
+
+apt-cache madison docker-ce
+Then finally select the version to install from the listed ones
+
+sudo apt-get install -y docker-ce=18.06.1~ce~3-0~ubuntu
+This will help a lot to people getting into the docker world, Enjoy!
+
+
+
+
+++++++++++++++++++++++++++++
+Trouble shooting links
+https://discuss.kubernetes.io/t/kubernetes-install-failure-get-http-localhost-10248-healthz-dial-tcp-127-0-0-1-connect-connection-refused/18784/6 ( not worked but refferd )
